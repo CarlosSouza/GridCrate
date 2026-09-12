@@ -416,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def _send_file(self, path, cache=False):
+    def _send_file(self, path, cache=False, etag=None):
         path = Path(path)
         if not path.is_file():
             return self._send(404, {"error": "not found"})
@@ -425,6 +425,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(path.stat().st_size))
         self.send_header("Cache-Control", "public, max-age=604800" if cache else "no-store")
+        if etag:
+            self.send_header("ETag", etag)
         for key, value in SECURITY_HEADERS.items():
             self.send_header(key, value)
         self.end_headers()
@@ -513,7 +515,12 @@ class Handler(BaseHTTPRequestHandler):
         thumb = artwork.thumbnail(files[0], width, config.THUMB_DIR)
         if thumb is None:
             return self._send(404, {"error": "not an image"})
-        return self._send_file(thumb, cache=True)
+        try:
+            stat = files[0].stat()
+            etag = f'"{int(stat.st_mtime_ns)}-{stat.st_size}"'
+        except OSError:
+            etag = None
+        return self._send_file(thumb, cache=True, etag=etag)
 
     def _full(self, query):
         appid = self._appid(query)

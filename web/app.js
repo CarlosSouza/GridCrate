@@ -76,8 +76,16 @@ function toast(message, kind = "", timeout = 4200) {
   setTimeout(() => node.remove(), timeout);
 }
 
-function thumbUrl(appid, slot, width = 320) {
-  return `/api/thumb?appid=${appid}&slot=${slot}&w=${width}&token=${encodeURIComponent(TOKEN)}`;
+function thumbUrl(appid, slot, width = 320, version = "") {
+  // The version keeps the browser from reusing a cached thumbnail after the
+  // artwork is replaced (same appid + slot means the same URL otherwise).
+  const suffix = version ? `&v=${encodeURIComponent(version)}` : "";
+  return `/api/thumb?appid=${appid}&slot=${slot}&w=${width}${suffix}&token=${encodeURIComponent(TOKEN)}`;
+}
+
+function slotVersion(info) {
+  if (!info) return "";
+  return `${Math.round((info.mtime || 0) * 1000)}-${info.size || 0}`;
 }
 function fullUrl(appid, slot) {
   return `/api/full?appid=${appid}&slot=${slot}&token=${encodeURIComponent(TOKEN)}`;
@@ -85,7 +93,8 @@ function fullUrl(appid, slot) {
 
 function bestArt(game, width = 320) {
   for (const slot of ["portrait", "wide", "hero"]) {
-    if (game.slots && game.slots[slot]) return { url: thumbUrl(game.appid, slot, width), slot };
+    const info = game.slots && game.slots[slot];
+    if (info) return { url: thumbUrl(game.appid, slot, width, slotVersion(info)), slot };
   }
   return null;
 }
@@ -334,7 +343,8 @@ function closeDrawer() {
 function detailContent(data) {
   const game = data.game;
   const hero = game.slots.hero ? fullUrl(game.appid, "hero") : null;
-  const cover = game.slots.portrait ? thumbUrl(game.appid, "portrait", 200) : null;
+  const cover = game.slots.portrait
+    ? thumbUrl(game.appid, "portrait", 200, slotVersion(game.slots.portrait)) : null;
   const head = el("div", { class: "drawer-head" },
     hero ? el("div", { class: "bg", style: { backgroundImage: `url("${hero}")` } }) : null,
     el("div", { class: "inner" },
@@ -387,7 +397,7 @@ function slotSection(data, slot) {
   const info = game.slots[slot];
   const section = el("div", { class: "slot", dataset: { slot } });
   const head = el("div", { class: "slot-head" },
-    info ? el("img", { class: `slot-thumb ${slot}`, src: thumbUrl(game.appid, slot, 200), title: info.file })
+    info ? el("img", { class: `slot-thumb ${slot}`, src: thumbUrl(game.appid, slot, 200, slotVersion(info)), title: info.file })
          : el("div", { class: `slot-thumb ${slot}` }),
     el("div", { style: { flex: 1 } },
       el("div", { class: "name", text: SLOT_LABEL[slot] }),

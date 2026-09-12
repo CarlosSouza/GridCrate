@@ -414,6 +414,21 @@ def main():
                 f"{base}/api/thumb?appid={media['appid']}&slot=portrait&w=320&token={api2.token}"
             ) as response:
                 check("thumbnail endpoint", response.headers["Content-Type"] == "image/jpeg")
+                before_etag = response.headers.get("ETag")
+            check("thumbnail carries an ETag", bool(before_etag), str(before_etag))
+
+            # Replacing the artwork must change the ETag, otherwise a browser
+            # keeps showing the cached thumbnail for the same URL.
+            candidates = batch.candidates_for_slot(client, "portrait", 5443884)
+            if candidates:
+                api.post("/api/apply", {"appid": media["appid"], "slot": "portrait",
+                                        "image": candidates[-1]})
+                with urllib.request.urlopen(
+                    f"{base}/api/thumb?appid={media['appid']}&slot=portrait&w=320&token={api2.token}"
+                ) as response:
+                    after_etag = response.headers.get("ETag")
+                check("ETag changes when the artwork is replaced", after_etag != before_etag,
+                      f"{before_etag} -> {after_etag}")
     except Exception:
         httpd.shutdown()
         httpd.server_close()
