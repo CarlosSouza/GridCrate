@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# WebKit leaves these behind if it ever runs with the project as CWD
+hsts-storage.sqlite
+mediakeys/
+storage/
+WebKitCache/
+CacheStorage/
+
+# local runtime data (normally in ~/.config and ~/.cache)
+*.log
+runtime.json
+db.json
+config.json

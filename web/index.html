@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GridCrate</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>/*__GRIDCRATE_BOOTSTRAP__*/</script>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="9" height="8" rx="2"/><rect x="13" y="3" width="9" height="8" rx="2" opacity=".5"/><rect x="2" y="13" width="9" height="8" rx="2" opacity=".5"/><rect x="13" y="13" width="9" height="8" rx="2"/></svg>
+      <div><strong>GridCrate</strong><span>artwork for non-Steam games</span></div>
+    </div>
+    <nav id="nav">
+      <button data-view="library" class="active">Library<span class="pill" id="pill-library"></span></button>
+      <button data-view="orphans">Orphans<span class="pill warn" id="pill-orphans"></span></button>
+      <button data-view="shortcuts">Shortcuts</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+    <div class="sidebar-foot" id="steam-status"></div>
+  </aside>
+  <main id="main">
+    <div id="view"></div>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
