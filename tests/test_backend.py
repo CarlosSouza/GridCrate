@@ -18,6 +18,7 @@ import struct
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from pathlib import Path
@@ -413,8 +414,112 @@ def main():
                 f"{base}/api/thumb?appid={media['appid']}&slot=portrait&w=320&token={api2.token}"
             ) as response:
                 check("thumbnail endpoint", response.headers["Content-Type"] == "image/jpeg")
-    finally:
+    except Exception:
         httpd.shutdown()
+        httpd.server_close()
+        raise
+
+    print("\n[14] security")
+    from core import http as http_mod
+
+    # appids are validated before touching the filesystem (they end up in globs)
+    for bad in ("*", "../*", "../../etc", "1; rm -rf /", ""):
+        try:
+            api.post("/api/orphans/delete", {"appids": [bad]})
+            check(f"delete refuses appid {bad!r}", False)
+        except Exception as exc:
+            check(f"delete refuses appid {bad!r}", "invalid appid" in str(exc), str(exc)[:60])
+    try:
+        api.post("/api/orphans/relink", {"from_appid": "*", "to_appid": "123"})
+        check("relink refuses wildcard appid", False)
+    except Exception as exc:
+        check("relink refuses wildcard appid", "invalid appid" in str(exc), str(exc)[:60])
+
+    grid_files = sorted(p.name for p in Path(api.ctx.grid_dir).iterdir())
+    check("nothing was trashed by the wildcard attempts", len(grid_files) > 0, f"{len(grid_files)} files")
+
+    # media endpoints must not build paths from arbitrary strings
+    for bad in ("../../etc/passwd", "*", "12/../../x"):
+        url = f"{base}/api/thumb?appid={urllib.parse.quote(bad)}&slot=portrait&token={api2.token}"
+        try:
+            with urllib.request.urlopen(url) as response:
+                response.read()
+            check(f"thumb refuses appid {bad!r}", False)
+        except urllib.error.HTTPError as exc:
+            check(f"thumb refuses appid {bad!r}", exc.code == 400, str(exc.code))
+
+    # image sanity guard (decompression bomb)
+    import struct as _struct
+
+    tiny = io.BytesIO()
+    Image.new("RGB", (2, 2), (0, 0, 0)).save(tiny, format="PNG")
+    bomb = bytearray(tiny.getvalue())
+    _struct.pack_into(">II", bomb, 16, 30000, 30000)  # patch the IHDR dimensions
+    try:
+        artwork.check_image_sane(bytes(bomb))
+        check("decompression bombs are refused", False)
+    except ValueError as exc:
+        check("decompression bombs are refused", "large" in str(exc) or "readable" in str(exc), str(exc)[:60])
+
+    # redirects must be re-validated hop by hop (SSRF)
+    class FakeResponse:
+        status_code = 302
+        is_redirect = True
+        is_permanent_redirect = False
+        headers = {"Location": "http://127.0.0.1:1/secret"}
+        url = "https://example.com/x.png"
+
+        def close(self):
+            pass
+
+    class FakeSession:
+        headers = {}
+
+        def get(self, url, **kwargs):
+            return FakeResponse()
+
+    real_session = http_mod.session
+    http_mod.session = lambda: FakeSession()
+    try:
+        http_mod.download_image("https://example.com/x.png")
+        check("redirects to private addresses are refused", False)
+    except http_mod.DownloadError as exc:
+        check("redirects to private addresses are refused", "non-public" in str(exc), str(exc)[:60])
+    finally:
+        http_mod.session = real_session
+
+    # path traversal in the static handler
+    for attempt in ("/static/../core/config.py", "/static/../webx/x", "/static/..%2f..%2fetc%2fpasswd"):
+        request = urllib.request.Request(f"{base}{attempt}")
+        try:
+            with urllib.request.urlopen(request) as response:
+                body = response.read()
+            check(f"static refuses {attempt}", False, f"got {len(body)} bytes")
+        except urllib.error.HTTPError as exc:
+            check(f"static refuses {attempt}", exc.code in (403, 404), str(exc.code))
+
+    # oversized request bodies are rejected before being read
+    import http.client
+
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    connection.putrequest("POST", "/api/apply_upload")
+    connection.putheader("X-GridCrate-Token", api2.token)
+    connection.putheader("Content-Length", str(200 * 1024 * 1024))
+    connection.endheaders()
+    response = connection.getresponse()
+    check("oversized request bodies rejected", response.status == 413, str(response.status))
+    connection.close()
+
+    # security headers
+    request = urllib.request.Request(f"{base}/", headers={"X-GridCrate-Token": api2.token})
+    with urllib.request.urlopen(request) as response:
+        headers = {k.lower(): v for k, v in response.headers.items()}
+    check("nosniff header set", headers.get("x-content-type-options") == "nosniff")
+    check("no-referrer header set", headers.get("referrer-policy") == "no-referrer")
+    check("content security policy set", "default-src 'self'" in headers.get("content-security-policy", ""))
+
+    httpd.shutdown()
+    httpd.server_close()
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed, {len(SKIPPED)} skipped")
     if FAILED:

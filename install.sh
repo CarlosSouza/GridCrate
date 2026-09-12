@@ -10,7 +10,12 @@ ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
 
 mkdir -p "$BIN" "$APPS" "$ICONS"
 
-printf '#!/bin/sh\nexec python3 "%s/gridcrate.py" "$@"\n' "$REPO" > "$BIN/gridcrate"
+# single-quote the path so odd characters cannot break (or inject into) the launcher
+REPO_Q=$(printf '%s' "$REPO" | sed "s/'/'\\\\''/g")
+{
+    echo '#!/bin/sh'
+    printf 'exec python3 %s "$@"\n' "'$REPO_Q/gridcrate.py'"
+} > "$BIN/gridcrate"
 chmod +x "$BIN/gridcrate"
 
 cp "$REPO/assets/gridcrate.png" "$ICONS/gridcrate.png"

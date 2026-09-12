@@ -158,14 +158,18 @@ function renderSidebar() {
   const stats = state.status.stats;
   $("#pill-library").textContent = `${stats.games}`;
   $("#pill-orphans").textContent = stats.orphans ? `${stats.orphans}` : "";
-  $("#steam-status").innerHTML = "";
   const steam = state.status.steam;
   const faugus = state.status.faugus;
-  $("#steam-status").append(
-    el("div", {}, el("span", { class: `dot ${steam.running ? "on" : ""}` }), `Steam ${steam.running ? "running" : "closed"}`),
+  const lines = [
+    el("div", {}, el("span", { class: `dot ${steam.running ? "on" : ""}` }),
+      `Steam ${steam.running ? "running" : "closed"}`),
     el("div", { class: "dim", style: { marginTop: "4px" } }, `account ${steam.account_id || "-"}`),
-    faugus.available ? el("div", { class: "dim", style: { marginTop: "4px" } }, `Faugus ${faugus.running ? "running" : "closed"} - ${faugus.count} games`) : null,
-  );
+  ];
+  if (faugus.available) {
+    lines.push(el("div", { class: "dim", style: { marginTop: "4px" } },
+      `Faugus ${faugus.running ? "running" : "closed"} - ${faugus.count} games`));
+  }
+  $("#steam-status").replaceChildren(...lines);
 }
 
 function switchView(view) {

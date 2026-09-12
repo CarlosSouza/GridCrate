@@ -24,6 +24,25 @@ from PIL import Image, UnidentifiedImageError
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".ico")
 
+# Guards: appids come from the UI/API and end up in paths and glob patterns.
+APPID_RE = re.compile(r"^\d{1,20}$")
+
+
+def valid_appid(value):
+    """Steam grid appids are unsigned 32-bit decimal numbers."""
+    return bool(APPID_RE.match(str(value or "")))
+
+
+def require_appid(value):
+    if not valid_appid(value):
+        raise ValueError(f"invalid appid: {value!r}")
+    return str(value)
+
+
+# Anything bigger than this is treated as a decompression bomb rather than art.
+Image.MAX_IMAGE_PIXELS = 64_000_000
+MAX_SIDE = 12000
+
 SLOTS = {
     "portrait": {
         "suffix": "p",
@@ -244,6 +263,8 @@ def apply_image(grid_dir, appid, slot, data, url="", mime="", trash_root=None):
     """Write downloaded bytes as the artwork for one slot. Returns written paths."""
     if slot not in SLOTS:
         raise ValueError(f"unknown slot {slot}")
+    appid = require_appid(appid)
+    check_image_sane(data)
     grid_dir = Path(grid_dir)
     grid_dir.mkdir(parents=True, exist_ok=True)
     ext = _extension_for(data, mime, slot, url)
@@ -275,6 +296,22 @@ def apply_image(grid_dir, appid, slot, data, url="", mime="", trash_root=None):
         shutil.copy2(target, mirror)
         written.append(str(mirror))
     return written
+
+
+def check_image_sane(data):
+    """Reject decompression bombs before Pillow allocates anything."""
+    import io
+
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            width, height = probe.size
+    except Exception as exc:
+        raise ValueError(f"not a readable image: {exc}") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError("image has no size")
+    if width > MAX_SIDE or height > MAX_SIDE or width * height > Image.MAX_IMAGE_PIXELS:
+        raise ValueError(f"image is too large ({width}x{height})")
+    return width, height
 
 
 def _webp_to_png(data):
@@ -317,6 +354,7 @@ def remove_slot(grid_dir, appid, slot, trash_root=None):
 def relink(grid_dir, from_appid, to_appid, slots=None, move=False, trash_root=None):
     """Copy (or move) artwork from an orphan appid to a live one."""
     grid_dir = Path(grid_dir)
+    from_appid, to_appid = require_appid(from_appid), require_appid(to_appid)
     slots = slots or SLOT_ORDER
     copied = []
     for slot in slots:

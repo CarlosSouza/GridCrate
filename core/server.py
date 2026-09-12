@@ -7,6 +7,7 @@ token, so a random web page in the user's browser cannot drive the app.
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -20,6 +21,19 @@ from . import artwork, batch, config, faugus, sgdb, sources, steam
 from .context import Context
 
 INDEX_PLACEHOLDER = "/*__GRIDCRATE_BOOTSTRAP__*/"
+
+MAX_REQUEST_BYTES = 64 * 1024 * 1024
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'none'; "
+        "frame-ancestors 'none'; base-uri 'none'"
+    ),
+}
 
 
 class Api:
@@ -178,6 +192,9 @@ class Api:
                 self.job.cancel()
             return {"ok": True}
         if path == "/api/orphans/relink":
+            for key in ("from_appid", "to_appid"):
+                if not artwork.valid_appid(payload.get(key)):
+                    raise ApiError(400, f"invalid appid for {key}")
             files = artwork.relink(
                 self.ctx.grid_dir, payload["from_appid"], payload["to_appid"],
                 slots=payload.get("slots"), move=payload.get("move", False),
@@ -191,6 +208,8 @@ class Api:
             grid = self.ctx.grid_dir
             removed = []
             for appid in payload.get("appids", []):
+                if not artwork.valid_appid(appid):
+                    raise ApiError(400, f"invalid appid: {appid!r}")
                 paths = [p for p in Path(grid).glob(f"{appid}*") if p.is_file()]
                 removed.extend(artwork.trash_files(paths, config.TRASH_DIR))
             return {"ok": True, "removed": removed}
@@ -323,6 +342,8 @@ class Api:
         return {"ok": True, "files": written, "game": self.ctx.game(game["appid"])}
 
     def _import_faugus(self, gameid):
+        if not re.match(r"^[A-Za-z0-9._-]{1,80}$", str(gameid or "")):
+            raise ApiError(400, "invalid Faugus game id")
         games = self.ctx.faugus_games
         entry = faugus.find_game(games, gameid=gameid)
         if entry is None:
@@ -385,6 +406,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for key, value in SECURITY_HEADERS.items():
+            self.send_header(key, value)
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -398,11 +421,11 @@ class Handler(BaseHTTPRequestHandler):
         if not path.is_file():
             return self._send(404, {"error": "not found"})
         content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        extra = {"Cache-Control": "public, max-age=604800"} if cache else {}
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(path.stat().st_size))
-        for key, value in extra.items():
+        self.send_header("Cache-Control", "public, max-age=604800" if cache else "no-store")
+        for key, value in SECURITY_HEADERS.items():
             self.send_header(key, value)
         self.end_headers()
         try:
@@ -446,6 +469,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authorised(query):
                 return self._send(403, {"error": "bad token"})
             length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_REQUEST_BYTES:
+                return self._send(413, {"error": "request body too large"})
             payload = json.loads(self.rfile.read(length) or b"{}")
             return self._send(200, self.api.post(path, payload))
         except ApiError as exc:
@@ -465,14 +490,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _static(self, path):
         name = path[len("/static/"):]
-        target = (config.WEB_DIR / name).resolve()
-        if not str(target).startswith(str(config.WEB_DIR.resolve())):
+        root = config.WEB_DIR.resolve()
+        target = (root / name).resolve()
+        if target != root and not target.is_relative_to(root):
             return self._send(403, {"error": "nope"})
         return self._send_file(target)
 
     # -- media -----------------------------------------------------------
+    def _appid(self, query):
+        value = query.get("appid", [""])[0]
+        if not artwork.valid_appid(value):
+            raise ApiError(400, "invalid appid")
+        return value
+
     def _thumb(self, query):
-        appid = query["appid"][0]
+        appid = self._appid(query)
         slot = query["slot"][0]
         width = int(query.get("w", ["320"])[0])
         files = artwork.slot_files(self.api.ctx.grid_dir, appid, slot)
@@ -484,7 +516,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_file(thumb, cache=True)
 
     def _full(self, query):
-        appid = query["appid"][0]
+        appid = self._appid(query)
         slot = query["slot"][0]
         files = artwork.slot_files(self.api.ctx.grid_dir, appid, slot)
         if not files:

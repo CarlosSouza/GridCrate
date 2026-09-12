@@ -135,6 +135,31 @@ shortcut CRUD with backups, Faugus mirroring, orphan detection/repair, every art
 uploads and the HTTP layer. Your real library is never touched; without a Steam install the
 suite skips with a message.
 
+## Security
+
+GridCrate edits files Steam trusts, so a few things are deliberate:
+
+- **Local only.** The HTTP API binds to `127.0.0.1` and every request must carry a token
+  generated at startup (`~/.cache/gridcrate/runtime.json`, mode 600). A web page you visit
+  cannot drive the app: the token is not readable cross-origin, so CSRF attempts get a 403.
+- **No credentials in the repository.** Your SteamGridDB key and IGDB secret live in
+  `~/.config/gridcrate/config.json` (mode 600); the local database is written 600 as well.
+- **Downloads are restricted.** Artwork URLs are fetched only from public http(s) hosts —
+  loopback, private, link-local and reserved addresses are refused, and redirects are
+  re-validated hop by hop so a public URL cannot bounce into your local network. Payloads are
+  capped at 40 MB and rejected if they are not readable images or look like decompression
+  bombs.
+- **appids are validated** (digits only) before they are used in file paths or glob patterns.
+- Responses carry `Content-Security-Policy`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`; oversized request bodies are
+  rejected before being read.
+- **What the app can do:** adding a shortcut writes an `Exe`/`LaunchOptions` pair that Steam
+  will run, and the API can start/stop Steam. That is the point of the app — but it means
+  anything holding the token can execute code with your privileges. Keep the runtime file
+  private (it is 600 by default) and do not expose the port.
+
+Found something? Please open an issue.
+
 ## FAQ
 
 **Does it need Steam closed?**

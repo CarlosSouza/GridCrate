@@ -69,14 +69,32 @@ def get(url, **kwargs):
     return session().get(url, **kwargs)
 
 
+MAX_REDIRECTS = 5
+
+
 def download_image(url, max_bytes=MAX_BYTES):
-    """Fetch an image, refusing non-public hosts and oversized payloads."""
-    if not is_public_url(url):
-        raise DownloadError("refusing to download from a non-public address")
-    try:
-        response = session().get(url, timeout=30, stream=True)
-    except requests.RequestException as exc:
-        raise DownloadError(f"download failed: {exc}") from exc
+    """Fetch an image, refusing non-public hosts and oversized payloads.
+
+    Redirects are followed by hand so every hop is validated too - otherwise a
+    public URL could bounce the request into the local network.
+    """
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_public_url(url):
+            raise DownloadError("refusing to download from a non-public address")
+        try:
+            response = session().get(url, timeout=30, stream=True, allow_redirects=False)
+        except requests.RequestException as exc:
+            raise DownloadError(f"download failed: {exc}") from exc
+        if response.is_redirect or response.is_permanent_redirect:
+            target = response.headers.get("Location")
+            response.close()
+            if not target:
+                raise DownloadError("redirect without a location")
+            url = requests.compat.urljoin(url, target)
+            continue
+        break
+    else:
+        raise DownloadError("too many redirects")
     if response.status_code >= 400:
         raise DownloadError(f"download failed: HTTP {response.status_code}")
     content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()

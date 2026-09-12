@@ -29,6 +29,11 @@ class Store:
     def load(self):
         if self.path.is_file():
             try:
+                if self.path.stat().st_mode & 0o077:  # older versions left it world-readable
+                    os.chmod(self.path, 0o600)
+            except OSError:
+                pass
+            try:
                 loaded = json.loads(self.path.read_text())
                 if isinstance(loaded, dict) and isinstance(loaded.get("games"), dict):
                     self.data = loaded
@@ -40,6 +45,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.data, indent=1, ensure_ascii=False))
+        os.chmod(tmp, 0o600)  # game names and paths are nobody else's business
         os.replace(tmp, self.path)
 
     # -- entries ---------------------------------------------------------
