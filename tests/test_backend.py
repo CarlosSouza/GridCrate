@@ -78,6 +78,17 @@ def build_sandbox(real_steam, account_id):
         if item.is_file() and item.stat().st_size <= 800_000:
             shutil.copy2(item, grid / item.name)
     (sandbox / "config").mkdir()
+    # Seed the API key the user actually has working, so the network tests
+    # exercise the real key instead of a possibly stale seeded one.
+    real_cfg = Path(os.path.expanduser("~/.config/gridcrate/config.json"))
+    if real_cfg.is_file():
+        try:
+            key = json.loads(real_cfg.read_text()).get("api_key", "")
+            if key:
+                (sandbox / "config" / "config.json").write_text(
+                    json.dumps({"api_key": key}))
+        except (OSError, ValueError):
+            pass
     faugus = sandbox / "faugus"
     (faugus / "icons").mkdir(parents=True)
     from PIL import Image
@@ -429,6 +440,11 @@ def main():
                     after_etag = response.headers.get("ETag")
                 check("ETag changes when the artwork is replaced", after_etag != before_etag,
                       f"{before_etag} -> {after_etag}")
+        # A batch finishing (or any refresh) must re-render an open drawer,
+        # otherwise it keeps showing the artwork from before the fetch.
+        app_js = (APP_DIR / "web" / "app.js").read_text()
+        check("refresh() re-renders an open drawer",
+              "await refreshDetail();" in app_js and "async function refreshDetail" in app_js)
     except Exception:
         httpd.shutdown()
         httpd.server_close()

@@ -157,6 +157,23 @@ async function refresh({ keepView = false } = {}) {
   renderSidebar();
   if (!keepView || !state.view) state.view = "library";
   render();
+  await refreshDetail();
+}
+
+async function refreshDetail() {
+  const drawer = document.querySelector(".drawer");
+  if (!drawer || !state.detail || !state.detail.game) return;
+  try {
+    const data = await api(`/api/game?appid=${state.detail.game.appid}`);
+    if (!document.contains(drawer)) return;
+    const scroll = ($(".drawer-body", drawer) || {}).scrollTop || 0;
+    drawer.replaceChildren(...detailContent(data));
+    state.detail = data;
+    const body = $(".drawer-body", drawer);
+    if (body) body.scrollTop = scroll;
+  } catch {
+    /* keep the stale drawer; the user can still close it */
+  }
 }
 
 function applyAccent(accent) {
@@ -519,9 +536,7 @@ async function uploadImage(game, slot, file) {
         body: { appid: game.appid, slot, data: reader.result, name: file.name, mime: file.type },
       });
       toast(`${SLOT_LABEL[slot]} applied from ${file.name}`, "ok");
-      closeDrawer();
       await refresh({ keepView: true });
-      openDetail(game.appid);
     } catch (error) {
       toast(error.message, "err");
     }
@@ -551,9 +566,7 @@ function attachDropTarget(section, game, slot) {
           body: { appid: game.appid, slot, image: { source: "file", url: url.trim(), thumb: url.trim(), id: url.trim() } },
         });
         toast(`${SLOT_LABEL[slot]} applied from URL`, "ok");
-        closeDrawer();
         await refresh({ keepView: true });
-        openDetail(game.appid);
       } catch (error) {
         toast(error.message, "err");
       }
@@ -667,9 +680,7 @@ function openImagePreview(game, slot, image, section) {
             await api("/api/apply", { method: "POST", body: { appid: game.appid, slot, image } });
             toast(`${SLOT_LABEL[slot]} applied to ${game.name}`, "ok");
             closeModal();
-            closeDrawer();
             await refresh({ keepView: true });
-            openDetail(game.appid);
           } catch (error) {
             toast(error.message, "err");
             event.target.disabled = false;
@@ -685,9 +696,7 @@ async function removeSlot(appid, slot) {
   try {
     await api("/api/remove", { method: "POST", body: { appid, slot } });
     toast(`${SLOT_LABEL[slot]} removed`, "ok");
-    closeDrawer();
     await refresh({ keepView: true });
-    openDetail(appid);
   } catch (error) {
     toast(error.message, "err");
   }
@@ -739,9 +748,7 @@ async function setMatch(appid, item, section, slot) {
       state.slotQuery[slot] = "";
       loadCandidates(section, game0(appid), slot, true);
     } else {
-      closeDrawer();
       await refresh({ keepView: true });
-      openDetail(appid);
     }
   } catch (error) {
     toast(error.message, "err");
