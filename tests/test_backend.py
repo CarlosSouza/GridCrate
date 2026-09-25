@@ -466,6 +466,31 @@ def main():
     except Exception as exc:
         check("relink refuses wildcard appid", "invalid appid" in str(exc), str(exc)[:60])
 
+    # a stale orphans list must never trash a live shortcut's artwork
+    live_appids = [g["appid"] for g in api.ctx.games()]
+    try:
+        api.post("/api/orphans/delete", {"appids": [live_appids[0]]})
+        check("delete refuses a live appid", False)
+    except Exception as exc:
+        check("delete refuses a live appid", "live shortcut" in str(exc), str(exc)[:70])
+    try:
+        api.post("/api/orphans/relink", {"from_appid": live_appids[0], "to_appid": live_appids[1]})
+        check("relink refuses a live source appid", False)
+    except Exception as exc:
+        check("relink refuses a live source appid", "live shortcut" in str(exc), str(exc)[:70])
+    fake = "3900000001"
+    while fake in live_appids:
+        fake = str(int(fake) + 1)
+    try:
+        api.post("/api/orphans/relink", {"from_appid": fake, "to_appid": "1"})
+        check("relink refuses a non-live target", False)
+    except Exception as exc:
+        check("relink refuses a non-live target", "not a live shortcut" in str(exc), str(exc)[:70])
+    stray = Path(api.ctx.grid_dir) / f"{fake}_logo.png"
+    stray.write_bytes(b"\x89PNG placeholder")
+    api.post("/api/orphans/delete", {"appids": [fake]})
+    check("a real orphan still deletes", not stray.exists())
+
     grid_files = sorted(p.name for p in Path(api.ctx.grid_dir).iterdir())
     check("nothing was trashed by the wildcard attempts", len(grid_files) > 0, f"{len(grid_files)} files")
 

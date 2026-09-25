@@ -195,6 +195,12 @@ class Api:
             for key in ("from_appid", "to_appid"):
                 if not artwork.valid_appid(payload.get(key)):
                     raise ApiError(400, f"invalid appid for {key}")
+            live = {game["appid"] for game in self.ctx.games()}
+            if payload["from_appid"] in live:
+                raise ApiError(409, f"appid {payload['from_appid']} belongs to a live shortcut "
+                                    "- the orphans list is stale, refresh the page")
+            if payload["to_appid"] not in live:
+                raise ApiError(409, "target appid is not a live shortcut")
             files = artwork.relink(
                 self.ctx.grid_dir, payload["from_appid"], payload["to_appid"],
                 slots=payload.get("slots"), move=payload.get("move", False),
@@ -206,10 +212,16 @@ class Api:
             return {"ok": True, "files": files, "game": self.ctx.game(payload["to_appid"])}
         if path == "/api/orphans/delete":
             grid = self.ctx.grid_dir
+            if self.ctx.shortcuts is None:
+                raise ApiError(409, "cannot verify live shortcuts - refusing to delete")
+            live = {game["appid"] for game in self.ctx.games()}
             removed = []
             for appid in payload.get("appids", []):
                 if not artwork.valid_appid(appid):
                     raise ApiError(400, f"invalid appid: {appid!r}")
+                if appid in live:
+                    raise ApiError(409, f"appid {appid} belongs to a live shortcut "
+                                        "- the orphans list is stale, refresh the page")
                 paths = [p for p in Path(grid).glob(f"{appid}*") if p.is_file()]
                 removed.extend(artwork.trash_files(paths, config.TRASH_DIR))
             return {"ok": True, "removed": removed}
