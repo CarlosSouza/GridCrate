@@ -249,6 +249,7 @@ td.actions { text-align: right; white-space: nowrap; }
 .orphan .info .sub2 { font-size: 11.5px; color: var(--dim); }
 .banner { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: var(--radius); margin-bottom: 16px; font-size: 13px; }
 .banner.info { background: var(--accent-soft); color: #cfd9ee; }
+.banner.ok { background: rgba(116, 201, 145, .12); color: #bfe6cc; }
 .banner.warn { background: rgba(226, 179, 92, .12); color: #f0dcae; }
 .banner.err { background: rgba(229, 120, 109, .12); color: #f2c3bd; }
 .banner .btn { flex: none; }

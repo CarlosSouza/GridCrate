@@ -771,6 +771,14 @@ function openBatchDialog(preset = {}) {
     SLOT_LABEL[slot]));
   const scope = appids ? `${appids.length} selected game` : `${state.games.length} games`;
   const jobBox = el("div", { id: "batch-job" });
+  let finished = false;
+  const closeButton = el("button", {
+    class: "btn", text: "Cancel",
+    onclick: () => {
+      if (!finished) api("/api/batch/cancel", { method: "POST", body: {} });
+      closeModal();
+    },
+  });
   const startButton = el("button", {
     class: "btn primary", text: "Start",
     onclick: async () => {
@@ -785,7 +793,14 @@ function openBatchDialog(preset = {}) {
             faugus: state.config.faugus_integration,
           },
         });
-        pollJob(jobBox, () => { refresh({ keepView: true }); });
+        pollJob(jobBox, () => {
+          finished = true;
+          refresh({ keepView: true });
+          startButton.style.display = "none";
+          closeButton.textContent = "Close";
+          closeButton.classList.add("primary");
+          closeButton.focus();
+        });
       } catch (error) {
         toast(error.message, "err");
         startButton.disabled = false;
@@ -811,7 +826,7 @@ function openBatchDialog(preset = {}) {
     ),
     el("div", { class: "modal-foot" },
       el("div", { class: "spacer" }),
-      el("button", { class: "btn", text: "Cancel", onclick: () => { api("/api/batch/cancel", { method: "POST", body: {} }); closeModal(); } }),
+      closeButton,
       startButton,
     ),
   );
@@ -824,9 +839,15 @@ function pollJob(container, onDone) {
     try { payload = await api("/api/job"); } catch { return; }
     const job = payload.job;
     if (!job) return;
+    const done = job.state !== "running";
+    const ok = job.items.filter((item) => item.status === "ok").length;
+    const steamNote = state.status && state.status.steam && state.status.steam.running
+      ? " Steam is running - restart it to see the new artwork." : "";
     container.replaceChildren(
+      done ? el("div", { class: "banner ok", style: { margin: "14px 0 4px" } },
+        el("div", { text: `Done - ${ok} game(s) updated.${steamNote}` })) : null,
       el("div", { class: "row", style: { margin: "16px 0 8px" } },
-        el("strong", { text: job.state === "running" ? "Working…" : `Finished (${job.state})` }),
+        el("strong", { text: done ? `Finished (${job.state})` : "Working…" }),
         el("span", { class: "dim", text: `${job.done}/${job.total}` }),
       ),
       el("div", { class: "progress" }, el("div", { style: { width: `${job.total ? (job.done / job.total) * 100 : 0}%` } })),
@@ -852,7 +873,8 @@ function pollJob(container, onDone) {
 /* ---------------- orphans ---------------- */
 
 async function renderOrphans(root) {
-  root.append(el("h1", { text: "Orphaned artwork" }), el("div", { class: "sub", text: "Files left behind when the shortcut appid changed" }));
+  root.append(el("h1", { text: "Orphaned artwork" }),
+    el("div", { class: "sub", text: "Files left behind when a game's appid changes (Faugus and Steam rewrite shortcuts.vdf, which renames the artwork keys). Steam can no longer see these files: Restore copies them onto the game's current appid, Delete moves them to GridCrate's trash." }));
   const loading = el("div", { class: "center" }, el("div", { class: "spin" }), "Fingerprinting artwork…");
   root.append(loading);
   try {
@@ -914,10 +936,13 @@ function orphanRow(orphan) {
   if (orphan.guess) {
     badges.push(el("span", { class: "badge accent", text: orphan.guess_source === "boilr" ? `BoilR cache: ${orphan.guess}` : `guess: ${orphan.guess}` }));
   }
-  if (orphan.duplicate_of) badges.push(el("span", { class: "badge", text: `duplicate of ${orphan.duplicate_of}` }));
+  if (orphan.duplicate_of) badges.push(el("span", { class: "badge ok", text: `duplicate of ${orphan.duplicate_of} - safe to delete` }));
   if (orphan.art_match && !orphan.guess_source) {
     badges.push(el("span", { class: "badge", text: `resembles ${orphan.art_match.name} (${orphan.art_match.slot})` }));
   }
+  const restoreSlots = orphan.target_appid
+    ? Object.keys(orphan.slots).filter((slot) => (orphan.target_missing || []).includes(slot))
+    : [];
   return el("div", { class: "orphan" },
     sample ? el("img", { src: sample, loading: "lazy" }) : el("img", {}),
     el("div", { class: "info" },
@@ -925,6 +950,18 @@ function orphanRow(orphan) {
       el("div", { class: "sub2", text: `${orphan.files.length} files · ${fmtBytes(orphan.size)} · appid ${orphan.appid} · ${Object.keys(orphan.slots).length} slots` }),
       badges.length ? el("div", { class: "badges", style: { marginTop: "6px" } }, badges) : null,
     ),
+    restoreSlots.length ? el("button", {
+      class: "btn small primary", text: `Restore to ${orphan.target_name}`,
+      title: `Copies ${restoreSlots.join(", ")} onto ${orphan.target_name}'s current appid and trashes the leftover files`,
+      onclick: async () => {
+        try {
+          await api("/api/orphans/relink", { method: "POST", body: { from_appid: orphan.appid, to_appid: orphan.target_appid, slots: null, move: true } });
+          toast(`Restored ${orphan.target_name}'s artwork`, "ok");
+          await refresh({ keepView: true });
+          render();
+        } catch (error) { toast(error.message, "err"); }
+      },
+    }) : null,
     picker,
     el("button", {
       class: "btn small danger", text: "Delete",
