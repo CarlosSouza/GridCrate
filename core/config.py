@@ -60,12 +60,8 @@ def save(config):
 
 
 def _seed_api_key():
-    """Borrow the key BoilR/Faugus already use, so first run just works."""
-    boilr = Path(os.path.expanduser("~/.config/boilr/config.toml"))
-    if boilr.is_file():
-        match = re.search(r'auth_key\s*=\s*"([^"]+)"', boilr.read_text(errors="ignore"))
-        if match:
-            return match.group(1).strip()
+    """Borrow the key Faugus/BoilR already use, so first run just works.
+    Faugus comes first: BoilR configs tend to be abandoned with dead keys."""
     faugus = Path(os.path.expanduser("~/.config/faugus-launcher/config.json"))
     if faugus.is_file():
         try:
@@ -74,6 +70,11 @@ def _seed_api_key():
                 return key.strip().strip('"')
         except (OSError, ValueError):
             pass
+    boilr = Path(os.path.expanduser("~/.config/boilr/config.toml"))
+    if boilr.is_file():
+        match = re.search(r'auth_key\s*=\s*"([^"]+)"', boilr.read_text(errors="ignore"))
+        if match:
+            return match.group(1).strip()
     return ""
 
 
